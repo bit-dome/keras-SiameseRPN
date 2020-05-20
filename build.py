@@ -107,6 +107,9 @@ class Siamese_RPN():
             else:
                 saving.load_weights_from_hdf5_group(
                     f, layers, reshape=reshape)
+                
+                
+        breakpoint()
     def inference_init(self,img):
         input_template = data_crop(img,self.config, mode = 'template')
         input_template = np.expand_dims(input_template, axis = 0)
