@@ -1,7 +1,7 @@
 from __future__ import division, print_function, absolute_import
 
 import tensorflow as tf
-import keras.layers as KL
+import tensorflow.keras.layers as KL
 
 class CONV(KL.Layer):
     def __init__(self,config,padding = 'VALID',**kwargs):
@@ -14,7 +14,7 @@ class CONV(KL.Layer):
         templates = inputs[1]
         
         self.temp_shps = tf.shape(templates)
-        self.img_shps = tf.shape(img)
+        # self.img_shps = tf.shape(img)
         # Reshape templates to kernels
         templates = tf.squeeze(templates,axis=0)
         templates = tf.reshape(templates,(self.temp_shps[1],self.temp_shps[2],-1,self.config.encoder_out_filter))
@@ -26,7 +26,7 @@ class CONV(KL.Layer):
         return out
     def compute_output_shape(self, input_shape):
         if self.padding =='VALID':
-            return (None,input_shape[0][1]-input_shape[1][1]+1,input_shape[0][2]-input_shape[1][2]+1,
+            return (None,input_shape[0][1]-input_shape[1][1]+1, input_shape[0][2]-input_shape[1][2]+1,
                     int(input_shape[1][-1]/self.config.encoder_out_filter))
         else:
             return (None,input_shape[0][1],input_shape[0][2],

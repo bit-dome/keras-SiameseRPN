@@ -1,8 +1,8 @@
 from __future__ import division, print_function, absolute_import
 
 import tensorflow as tf
-import keras.layers as KL
-import keras.models as KM
+import tensorflow.keras.layers as KL
+import tensorflow.keras.models as KM
 
 def alexnet_graph(imgs):
     x = KL.Conv2D(192,kernel_size=11,strides=2,name = 'conv0')(imgs)

@@ -7,13 +7,25 @@ from anchors import generate_anchors
 from models.eval_graph import eval_graph
 from models.predict_func import parse_outputs
 from utilis.data_format import data_crop
-
+import tensorflow as tf
 
 #import tensorflow as tf
 import numpy as np
-import keras.backend as K
-import keras.layers as KL
-import keras.models as KM
+import tensorflow.keras.backend as K
+from tensorflow.keras.layers import *
+from tensorflow.keras.models import *
+
+
+stray_weights = {'cls1_kernel':[np.load('constant/conv_cls1_kernel_0.npy'), np.load('constant/conv_cls1_bias_0.npy')],
+               'r1_kernel':[np.load('constant/conv_r1_kernel_0.npy'), np.load('constant/conv_r1_bias_0.npy')],
+               'cls2_kernel':[np.load('constant/conv_cls2_kernel_0.npy'), np.load('constant/conv_cls2_bias_0.npy')],
+               'r2_kernel':[np.load('constant/conv_r2_kernel_0.npy'), np.load('constant/conv_r2_bias_0.npy')],
+               'regress_adjust': [np.load('constant/regress_adjust_kernel_0.npy'), np.load('constant/regress_adjust_bias_0.npy')],
+               'anchors': np.load('constant/anchors.npy')}
+  
+
+
+
 
 class Siamese_RPN():
     def __init__(self, mode, config, model_dir='./log'):
@@ -31,111 +43,133 @@ class Siamese_RPN():
         self.keras_model = self.build()
     def build(self):
         ##############
-        # Inputs
+        # Set Inputs
         ##############
-        if self.mode == 'inference':
+        
+        
+        if self.mode == 'inference_init':
+            # Input template's batch size is nailed to 1. 
+            inp_template = Input(batch_shape = (1,)+self.config.template_size, name='inp_template')
+        
+        
+        
+        elif self.mode == 'inference':
             # When evaluating batch size must be 1.!!!!!!
             assert self.config.batch_size == 1
             
-            inp_img = KL.Input(shape=self.config.instance_size,name='inp_img')
+            inp_img = Input(shape=self.config.instance_size,name='inp_img')
             # Generate anchors for every batch,
             anchors = generate_anchors(self.config.total_stride,
                                        self.config.scales,self.config.ratios,self.config.score_size)
-            anchors = np.broadcast_to(anchors, (self.config.batch_size,)+anchors.shape)
-            anchors = KL.Lambda(lambda x:K.variable(anchors),name = 'inp_anchors')(inp_img)
-            #inp_template = KL.Input(batch_shape = (1,)+self.config.template_size, name='inp_template')
-            cls_template = KL.Lambda(lambda x:K.variable(self.config.cls_template),name='cls_template')(inp_img)
-            bbox_template = KL.Lambda(lambda x:K.variable(self.config.bbox_template),name = 'bbox_template')(inp_img)
-        elif self.mode == 'inference_init':
-            # Input template's batch size is nailed to 1. 
-            inp_template = KL.Input(batch_shape = (1,)+self.config.template_size, name='inp_template')
+            anchors = np.broadcast_to(anchors, (self.config.batch_size,)+anchors.shape) #shape=(1, 19, 19, 5, 4)
+      
+    
+           
+            
+            
+            
+            
+            
         ###########################
-        # Encoder
+        # Set Backbone
         ###########################
+        
         self.encoder = build_encoder()
-        if self.mode == 'inference_init':
-            ###########
-            # Init
-            ###########
-            cls_filters = 2*self.config.num_anchors*self.config.encoder_out_filter
-            bbox_filters = 4*self.config.num_anchors*self.config.encoder_out_filter
-            encoded_template = self.encoder(inp_template)
-            cls_template = KL.Conv2D(cls_filters,(3,3),name='conv_cls1')(encoded_template)
-            bbox_template = KL.Conv2D(bbox_filters,(3,3),name='conv_r1')(encoded_template)
-            outputs = [cls_template,bbox_template]
-            return KM.Model([inp_template],outputs,name = 'Siamese_init')
         
-        elif self.mode == 'inference':
-            ###################
-            # Inference
-            ###################
-            encoded_img= self.encoder(inp_img)
-            cls_img = KL.Conv2D(self.config.encoder_out_filter,(3,3),name='conv_cls2')(encoded_img)
-            bbox_img = KL.Conv2D(self.config.encoder_out_filter,(3,3),name='conv_r2')(encoded_img)
-            cls_out = CONV(self.config, name = 'cls_nn_conv')([cls_img,cls_template])
-            bbox_out = CONV(self.config,name='box_nn_conv')([bbox_img,bbox_template])
-            bbox_out = KL.Conv2D(4*self.config.num_anchors,1,name = 'regress_adjust')(bbox_out)
-            
-            outputs = KL.Lambda(lambda x:eval_graph(*x,config = self.config), name='Eval')([bbox_out, cls_out, anchors])
-            return KM.Model([inp_img],outputs,name='Siamese_inference')
         
+        if self.mode == 'inference':
+            encoded_img= self.encoder(inp_img)  
+            model = Model([inp_img], outputs=encoded_img, name='bb_alex_large')
+            return model
+        
+        
+               
+        elif self.mode == 'inference_init':
+     
+            cls_filters = 2*self.config.num_anchors*self.config.encoder_out_filter #5120
+            bbox_filters = 4*self.config.num_anchors*self.config.encoder_out_filter #10240            
+            encoded_template = self.encoder(inp_template)           
             
-    def load_weights(self,filepath, by_name=True, skip_mismatch = False, 
-                     reshape = False, exclude=None,verbose = False):
-        import h5py
-        import re
-        from keras.engine import saving
-        if h5py is None:
-            raise ImportError('`load_weights` requires h5py.')
-        keras_model = self.keras_model
-        layers = keras_model.inner_model.layers if hasattr(keras_model, "inner_model")\
-            else keras_model.layers
-        if exclude != None:
-            by_name = True
-            layers = filter(lambda x: not re.match(exclude, x.name),layers)
-        if verbose:
-            print('[INFO] Loading following layers: ')
-            for layer in layers:
-                print('Layer:     ',layer.name)
-        with h5py.File(filepath, mode='r') as f:
-            if 'layer_names' not in f.attrs and 'model_weights' in f:
-                f = f['model_weights']
-            if by_name:
-                saving.load_weights_from_hdf5_group_by_name(
-                    f, layers, skip_mismatch=skip_mismatch,
-                    reshape=reshape)
-            else:
-                saving.load_weights_from_hdf5_group(
-                    f, layers, reshape=reshape)
-                
-                
-        breakpoint()
+            model = Model([inp_template], encoded_template, name = 'bb_alex_small')        
+                           
+          
+            return model
+            
+  
+    @tf.function
+    def compute_cnn_head(self, bb_outputs, cls_side_params, bbox_side_params):
+        '''compute CNN head of template model'''
+
+        cls_head_out = tf.nn.conv2d(bb_outputs, cls_side_params[0], strides=(1,1,1,1), padding='VALID') + cls_side_params[1]
+        bbox_head_out = tf.nn.conv2d(bb_outputs, bbox_side_params[0], strides=(1,1,1,1), padding='VALID') + bbox_side_params[1]
+        
+        return cls_head_out, bbox_head_out
+    
+    
+
+    @tf.function
+    def compute_RPN_head(self, cnn_head_outs):         
+    
+
+        cls_out = tf.nn.conv2d(cnn_head_outs[0], self.config.cls_template, strides=(1,1,1,1), padding='VALID')          
+        bbox_out = tf.nn.conv2d(cnn_head_outs[1], self.config.bbox_template, strides=(1,1,1,1), padding='VALID')
+        
+        bbox_out = tf.nn.conv2d(bbox_out, stray_weights['regress_adjust'][0], strides=(1,1,1,1), padding='VALID') + stray_weights['regress_adjust'][1]
+        
+        boxes, scores = eval_graph(bbox_out, cls_out, stray_weights['anchors'])
+        
+        return boxes, scores
+    
+    
+    
+    
+    def reshape_template(self, template):
+        '''reshape template to fit with the inference part [4 4 512 10||20]'''        
+        template = tf.squeeze(template, axis=0)
+        template = tf.reshape(template, (template.shape[0], template.shape[1], -1, self.config.encoder_out_filter))
+        template = tf.transpose(template, (0,1,3,2))
+        return template
+        
+        
+    
+    
+    # ─────────────────────────────────────────────────────────────────
+
+
     def inference_init(self,img):
-        input_template = data_crop(img,self.config, mode = 'template')
+        input_template = data_crop(img, self.config, mode = 'template')
         input_template = np.expand_dims(input_template, axis = 0)
-        outputs = self.keras_model.predict(input_template)
-        self.config.cls_template = outputs[0]
-        self.config.bbox_template = outputs[1]
-        print('[INFO] Store template feature_map')
-    def predict(self, img):
-        input_img,scale_size = data_crop(img, self.config, mode = 'instance')
-        input_img = np.expand_dims(input_img, axis = 0)
-        boxes, scores = self.keras_model.predict(input_img)
+        bb_outputs = self.keras_model.predict(input_template)        
         
+            
+        
+        cls_template, bbox_template = self.compute_cnn_head(bb_outputs, stray_weights['cls1_kernel'], stray_weights['r1_kernel'])        
+        
+        
+        self.config.cls_template = self.reshape_template(cls_template)
+        self.config.bbox_template = self.reshape_template(bbox_template)
+        print('[INFO] Store template feature_map')
+       
+      
+        
+        
+        
+    def predict(self, img):
+        input_img, scale_size = data_crop(img, self.config, mode = 'instance')
+        input_img = np.expand_dims(input_img, axis = 0)
+        
+        
+        bb_outputs = self.keras_model.predict(input_img)        
+        cnn_head_outs = self.compute_cnn_head(bb_outputs, stray_weights['cls2_kernel'], stray_weights['r2_kernel'])               
+        boxes, scores = self.compute_RPN_head(cnn_head_outs)               
         boxes = np.squeeze(boxes, axis = 0)
-        scores = np.squeeze(scores,axis = 0)
+        scores = np.squeeze(scores, axis = 0)
+        
 
         xy,wh,score = parse_outputs(boxes, scores, scale_size, self.config)
         # Update outputs
         self.config.outputs['target_xy'] = xy
         self.config.outputs['target_wh'] = wh
         return xy,wh,score
-def test():
-    from config import Tracker_config
-    
-    config = Tracker_config()
-    a = Siamese_RPN(mode='inference',config=config)
-    a.load_weights('pretrained/baseline.h5',verbose=False)
-    
-if __name__ == '__main__':
-    test()
+
+

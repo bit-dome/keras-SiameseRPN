@@ -7,7 +7,7 @@ import time
 import argparse
 
 import tensorflow as tf
-
+# tf.compat.v1.disable_eager_execution()
 from build import Siamese_RPN
 from config import Tracker_config
 
@@ -35,17 +35,21 @@ cap.set(cv2.CAP_PROP_FPS, 60)
 
 FPS_all = []
 
-def init(img,xy,wh):
+def init(img, xy, wh):
     config.outputs['target_xy'] = np.array(xy)
     config.outputs['target_wh'] = np.array(wh)
-    with tf.device('/gpu:0'):
-        network = Siamese_RPN(mode='inference_init', config=config, model_dir=None)
-    network.load_weights('pretrained/baseline.h5', by_name = True )
-    network.inference_init(img)
-    with tf.device('/gpu:0'):
-        network = Siamese_RPN(mode = 'inference',config = config, model_dir = None)
-    network.load_weights('pretrained/baseline.h5',by_name = True)
-    return network
+  
+    network1 = Siamese_RPN(mode='inference_init', config=config, model_dir=None)        
+    network1.keras_model.load_weights('pretrained/baseline.h5', by_name=True)
+    
+    network1.inference_init(img)
+    
+    del network1
+    
+   
+    network2 = Siamese_RPN(mode = 'inference',config = config, model_dir = None)
+    network2.keras_model.load_weights('pretrained/baseline.h5', by_name=True)
+    return network2
 
 def main():
     

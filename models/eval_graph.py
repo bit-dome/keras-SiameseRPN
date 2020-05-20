@@ -1,7 +1,7 @@
 from __future__ import division, print_function, absolute_import
 
 import tensorflow as tf
-import keras.backend as K
+import tensorflow.keras.backend as K
 
 def refine_boxes(deltas, anchors):
     ''' Apply deltas to anchors
@@ -14,7 +14,10 @@ def refine_boxes(deltas, anchors):
     
     return K.concatenate([box_xy, box_wh],axis = -1)
 
-def eval_graph(*args, config=None):
+
+
+
+def eval_graph(box_map, class_map, anchors):
     '''
     Input:
         box_map: [batch, 19, 19, 5*4]. Float32. 
@@ -24,9 +27,7 @@ def eval_graph(*args, config=None):
         max_delat: [dx, dy, dw, dh]
         max_anchor: [x, y, w, h]
     '''
-    box_map = args[0]
-    class_map = args[1]
-    anchors = args[2]
+
     
     # When evaluating batch size must be 1.!!!!!!
     # Change pytorch type data to tensorflow data
@@ -45,4 +46,4 @@ def eval_graph(*args, config=None):
     # Softmax activation
     class_map = K.softmax(class_map, -1)
     class_map = class_map[...,1]
-    return [refined_box,class_map]
+    return refined_box, class_map
